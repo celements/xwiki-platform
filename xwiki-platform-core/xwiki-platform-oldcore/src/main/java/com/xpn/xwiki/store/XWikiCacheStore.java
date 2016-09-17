@@ -22,6 +22,7 @@ package com.xpn.xwiki.store;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xwiki.bridge.event.DocumentCreatedEvent;
@@ -32,7 +33,10 @@ import org.xwiki.cache.Cache;
 import org.xwiki.cache.CacheException;
 import org.xwiki.cache.CacheManager;
 import org.xwiki.cache.config.LRUCacheConfiguration;
+import org.xwiki.context.Execution;
+import org.xwiki.context.ExecutionContext;
 import org.xwiki.model.reference.DocumentReference;
+import org.xwiki.model.reference.EntityReferenceSerializer;
 import org.xwiki.observation.EventListener;
 import org.xwiki.observation.ObservationManager;
 import org.xwiki.observation.event.Event;
@@ -51,7 +55,7 @@ import com.xpn.xwiki.web.Utils;
  * A proxy store implementation that caches Documents when they are first fetched and subsequently return them from a
  * cache. It delegates all write and search operations to an underlying store without doing any caching on them.
  *
- * @version $Id$
+ * @version $Id: f51a68e340786f03be34262fed72244aab596b88 $
  */
 public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
 {
@@ -132,9 +136,8 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
                 cacheManager.createNewCache(new LRUCacheConfiguration("xwiki.store.pagecache", capacity));
             setCache(pageCache);
 
-            Cache<Boolean> pageExistcache =
-                cacheManager.createNewCache(new LRUCacheConfiguration("xwiki.store.pageexistcache",
-                    pageExistCacheCapacity));
+            Cache<Boolean> pageExistcache = cacheManager
+                .createNewCache(new LRUCacheConfiguration("xwiki.store.pageexistcache", pageExistCacheCapacity));
             setPageExistCache(pageExistcache);
         } catch (CacheException e) {
             throw new XWikiException(XWikiException.MODULE_XWIKI_CACHE, XWikiException.ERROR_CACHE_INITIALIZING,
@@ -163,7 +166,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     @Override
     public void saveXWikiDoc(XWikiDocument doc, XWikiContext context, boolean bTransaction) throws XWikiException
     {
-        String key = doc.getKey();
+        String key = getCacheKey(doc, context.getWikiId());
         this.store.saveXWikiDoc(doc, context, bTransaction);
         doc.setStore(this.store);
         // Make sure cache is initialized
@@ -218,10 +221,35 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
         }
     }
 
+    /**
+     * getCacheKey generates the cache key with a mix of the wikiId and the XWikiDocument reference. see XWIKI-13632
+     */
+    String getCacheKey(XWikiDocument doc, String wikiId)
+    {
+        String cacheDocKey;
+        DocumentReference docRef = doc.getDocumentReference();
+        DocumentReference keyDocRef =
+            new DocumentReference(wikiId, docRef.getLastSpaceReference().getName(), docRef.getName());
+        EntityReferenceSerializer<String> uidSerializer =
+            Utils.getComponent(EntityReferenceSerializer.TYPE_STRING, "uid");
+        final String uid = uidSerializer.serialize(keyDocRef);
+
+        String localeString = doc.getLocale().toString();
+        if (StringUtils.isEmpty(localeString)) {
+            cacheDocKey = uid;
+        } else {
+            StringBuilder sb = new StringBuilder(64);
+            cacheDocKey = sb.append(uid).append(localeString.length()).append(':').append(localeString).toString();
+        }
+        return cacheDocKey;
+    }
+
     @Deprecated
     public String getKey(XWikiDocument doc)
     {
-        return doc.getKey();
+        ExecutionContext context = Utils.getComponent(Execution.class).getContext();
+        XWikiContext xcontext = (XWikiContext) context.getProperty(XWikiContext.EXECUTIONCONTEXT_KEY);
+        return getCacheKey(doc, xcontext.getWikiId());
     }
 
     /**
@@ -230,7 +258,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     @Deprecated
     public String getKey(XWikiDocument doc, XWikiContext context)
     {
-        return doc.getKey();
+        return getCacheKey(doc, context.getWikiId());
     }
 
     /**
@@ -239,9 +267,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     @Deprecated
     public String getKey(String fullName, String language, XWikiContext context)
     {
-        XWikiDocument doc = new XWikiDocument(null, fullName);
-        doc.setLanguage(language);
-        return doc.getKey();
+        return getKey(context.getWikiId(), fullName, language);
     }
 
     /**
@@ -258,7 +284,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     @Override
     public XWikiDocument loadXWikiDoc(XWikiDocument doc, XWikiContext context) throws XWikiException
     {
-        String key = doc.getKey();
+        String key = getCacheKey(doc, context.getWikiId());
 
         LOGGER.debug("Cache: begin for doc {} in cache", key);
 
@@ -299,11 +325,6 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
                 doc = this.store.loadXWikiDoc(doc, context);
                 doc.setStore(this.store);
 
-                // Recalculate the key in case it's not exactly the same as the one from the passed XWikiDocument
-                // TODO: ideally we modify store implementation to search in passed document wiki instead of context
-                // wiki
-                key = doc.getKey();
-
                 LOGGER.debug("Cache: Got doc {} from storage", key);
 
                 if (doc.isNew()) {
@@ -327,7 +348,8 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     @Override
     public void deleteXWikiDoc(XWikiDocument doc, XWikiContext context) throws XWikiException
     {
-        String key = doc.getKey();
+        // TODO unit tests to ensure cache key
+        String key = getCacheKey(doc, context.getWikiId());
 
         this.store.deleteXWikiDoc(doc, context);
 
@@ -352,8 +374,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     }
 
     @Override
-    public List<DocumentReference> searchDocumentReferences(String wheresql, XWikiContext context)
-        throws XWikiException
+    public List<DocumentReference> searchDocumentReferences(String wheresql, XWikiContext context) throws XWikiException
     {
         return this.store.searchDocumentReferences(wheresql, context);
     }
@@ -414,8 +435,8 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     }
 
     @Override
-    public List<String> searchDocumentsNames(String parametrizedSqlClause, List<?> parameterValues, XWikiContext context)
-        throws XWikiException
+    public List<String> searchDocumentsNames(String parametrizedSqlClause, List<?> parameterValues,
+        XWikiContext context) throws XWikiException
     {
         return this.store.searchDocumentsNames(parametrizedSqlClause, parameterValues, context);
     }
@@ -563,8 +584,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     }
 
     @Override
-    public List<String> loadBacklinks(String fullName, XWikiContext context, boolean bTransaction)
-        throws XWikiException
+    public List<String> loadBacklinks(String fullName, XWikiContext context, boolean bTransaction) throws XWikiException
     {
         return this.store.loadBacklinks(fullName, context, bTransaction);
     }
@@ -642,7 +662,7 @@ public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
     @Override
     public boolean exists(XWikiDocument doc, XWikiContext context) throws XWikiException
     {
-        String key = doc.getKey();
+        String key = getCacheKey(doc, context.getWikiId());
         initCache(context);
         try {
             Boolean result = getPageExistCache().get(key);

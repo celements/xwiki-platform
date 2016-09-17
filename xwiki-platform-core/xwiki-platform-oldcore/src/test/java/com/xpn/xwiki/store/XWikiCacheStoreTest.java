@@ -19,21 +19,8 @@
  */
 package com.xpn.xwiki.store;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.xwiki.cache.Cache;
-import org.xwiki.cache.CacheManager;
-import org.xwiki.model.internal.reference.UidStringEntityReferenceSerializer;
-import org.xwiki.model.reference.DocumentReference;
-import org.xwiki.observation.ObservationManager;
-import org.xwiki.observation.remote.RemoteObservationManagerContext;
-import org.xwiki.test.annotation.ComponentList;
-
-import com.xpn.xwiki.doc.XWikiDocument;
-import com.xpn.xwiki.test.MockitoOldcoreRule;
-
 import static com.xpn.xwiki.test.mockito.OldcoreMatchers.isCacheConfiguration;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
@@ -45,12 +32,36 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.Locale;
+
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.xwiki.cache.Cache;
+import org.xwiki.cache.CacheManager;
+import org.xwiki.model.internal.DefaultModelConfiguration;
+import org.xwiki.model.internal.reference.DefaultSymbolScheme;
+import org.xwiki.model.internal.reference.UidStringEntityReferenceSerializer;
+import org.xwiki.model.reference.DocumentReference;
+import org.xwiki.observation.ObservationManager;
+import org.xwiki.observation.remote.RemoteObservationManagerContext;
+import org.xwiki.test.annotation.ComponentList;
+
+import com.xpn.xwiki.XWikiContext;
+import com.xpn.xwiki.doc.XWikiDocument;
+import com.xpn.xwiki.internal.model.reference.CurrentEntityReferenceProvider;
+import com.xpn.xwiki.internal.model.reference.CurrentStringDocumentReferenceResolver;
+import com.xpn.xwiki.internal.model.reference.CurrentStringEntityReferenceResolver;
+import com.xpn.xwiki.test.MockitoOldcoreRule;
+
 /**
  * Validate {@link XWikiCacheStore} behavior.
- * 
- * @version $Id$
+ *
+ * @version $Id: f7e278312d0db1f977e6dc8b6e5a0250ce9d2412 $
  */
-@ComponentList(UidStringEntityReferenceSerializer.class)
+@ComponentList({UidStringEntityReferenceSerializer.class, CurrentStringEntityReferenceResolver.class,
+    CurrentStringDocumentReferenceResolver.class, CurrentEntityReferenceProvider.class, DefaultModelConfiguration.class,
+    DefaultSymbolScheme.class})
 public class XWikiCacheStoreTest
 {
     @Rule
@@ -68,11 +79,11 @@ public class XWikiCacheStoreTest
 
         CacheManager cacheManager = this.oldcore.getMocker().registerMockComponent(CacheManager.class);
         cache = mock(Cache.class);
-        when(cacheManager.<XWikiDocument>createNewCache(isCacheConfiguration("xwiki.store.pagecache"))).thenReturn(
-            cache);
+        when(cacheManager.<XWikiDocument>createNewCache(isCacheConfiguration("xwiki.store.pagecache")))
+            .thenReturn(cache);
         existCache = mock(Cache.class);
-        when(cacheManager.<Boolean>createNewCache(isCacheConfiguration("xwiki.store.pageexistcache"))).thenReturn(
-            existCache);
+        when(cacheManager.<Boolean>createNewCache(isCacheConfiguration("xwiki.store.pageexistcache")))
+            .thenReturn(existCache);
     }
 
     @Test
@@ -80,16 +91,17 @@ public class XWikiCacheStoreTest
     {
         // Save a document
         DocumentReference reference = new DocumentReference("wiki", "space", "page");
-        this.oldcore.getSpyXWiki().saveDocument(new XWikiDocument(reference), this.oldcore.getXWikiContext());
+        XWikiContext context = this.oldcore.getXWikiContext();
+        this.oldcore.getSpyXWiki().saveDocument(new XWikiDocument(reference), context);
 
-        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), context);
 
-        XWikiDocument existingDocument =
-            store.loadXWikiDoc(new XWikiDocument(reference), this.oldcore.getXWikiContext());
+        XWikiDocument existingDocument = store.loadXWikiDoc(new XWikiDocument(reference), context);
+        String cacheKey = store.getCacheKey(existingDocument, context.getWikiId());
 
         assertFalse(existingDocument.isNew());
-        verify(this.cache).set(eq(existingDocument.getKey()), any(XWikiDocument.class));
-        verify(this.existCache).set(existingDocument.getKey(), Boolean.TRUE);
+        verify(this.cache).set(eq(cacheKey), any(XWikiDocument.class));
+        verify(this.existCache).set(cacheKey, Boolean.TRUE);
         verify(this.cache).get(anyString());
         verify(this.existCache).get(anyString());
 
@@ -97,19 +109,159 @@ public class XWikiCacheStoreTest
         verifyNoMoreInteractions(this.existCache);
 
         XWikiDocument notExistingDocument =
-            store.loadXWikiDoc(new XWikiDocument(new DocumentReference("wiki", "space", "nopage")),
-                this.oldcore.getXWikiContext());
+            store.loadXWikiDoc(new XWikiDocument(new DocumentReference("wiki", "space", "nopage")), context);
+        String notCacheKey = store.getCacheKey(notExistingDocument, context.getWikiId());
 
         assertTrue(notExistingDocument.isNew());
 
         // Make sure only the existing document has been put in the cache
-        verify(this.cache).set(eq(existingDocument.getKey()), any(XWikiDocument.class));
-        verify(this.existCache).set(existingDocument.getKey(), Boolean.TRUE);
-        verify(this.existCache).set(notExistingDocument.getKey(), Boolean.FALSE);
+        verify(this.cache).set(eq(cacheKey), any(XWikiDocument.class));
+        verify(this.existCache).set(cacheKey, Boolean.TRUE);
+        verify(this.existCache).set(notCacheKey, Boolean.FALSE);
         verify(this.cache, times(2)).get(anyString());
         verify(this.existCache, times(2)).get(anyString());
 
         verifyNoMoreInteractions(this.cache);
         verifyNoMoreInteractions(this.existCache);
     }
+
+    @Test
+    public void testGetCacheKey_defaultLanguage() throws Exception
+    {
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+
+        DocumentReference docRef = new DocumentReference("testWiki", "space", "page");
+        XWikiDocument theDoc = new XWikiDocument(docRef);
+        assertEquals("7:xwikiDB5:space4:page", store.getCacheKey(theDoc, "xwikiDB"));
+    }
+
+    @Test
+    public void testGetCacheKey_language() throws Exception
+    {
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+
+        DocumentReference docRef = new DocumentReference("testWiki", "space", "page", "fr");
+        XWikiDocument theDoc = new XWikiDocument(docRef, new Locale("fr"));
+        assertEquals("7:xwikiDB5:space4:page2:fr", store.getCacheKey(theDoc, "xwikiDB"));
+    }
+
+    @Test
+    @Deprecated
+    public void testGetKey_XWikiDocument() throws Exception
+    {
+        XWikiContext context = this.oldcore.getXWikiContext();
+        context.setWikiId("xwikiDB");
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+
+        DocumentReference docRef = new DocumentReference("testWiki", "space", "page");
+        XWikiDocument theDoc = new XWikiDocument(docRef);
+        assertEquals("7:xwikiDB5:space4:page", store.getKey(theDoc));
+    }
+
+    @Test
+    @Deprecated
+    public void testGetKey_XWikiDocument_Context() throws Exception
+    {
+        XWikiContext context = this.oldcore.getXWikiContext();
+        context.setWikiId("xwikiDB");
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+
+        DocumentReference docRef = new DocumentReference("testWiki", "space", "page");
+        XWikiDocument theDoc = new XWikiDocument(docRef);
+        assertEquals("7:xwikiDB5:space4:page", store.getKey(theDoc, context));
+    }
+
+    @Test
+    @Deprecated
+    public void testGetKey_XWikiDocument_String_Context() throws Exception
+    {
+        XWikiContext context = this.oldcore.getXWikiContext();
+        context.setWikiId("xwikiDB");
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+
+        assertEquals("7:xwikiDB5:space4:page2:de", store.getKey("testWiki:space.page", "de", context));
+    }
+
+    @Test
+    @Deprecated
+    public void testGetKey_Strings() throws Exception
+    {
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), this.oldcore.getXWikiContext());
+
+        assertEquals("7:xwikiDB5:space4:page2:de", store.getKey("xwikiDB", "testWiki:space.page", "de"));
+    }
+
+    @Test
+    public void testLoadXWikiDoc_wikiIdFromContext() throws Exception
+    {
+        String wikiId = "xwikiDB";
+        XWikiContext context = this.oldcore.getXWikiContext();
+        context.setWikiId(wikiId);
+        // Save a document
+        DocumentReference reference = new DocumentReference("wiki", "space", "page");
+        this.oldcore.getSpyXWiki().saveDocument(new XWikiDocument(reference), context);
+
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), context);
+
+        XWikiDocument existingDocument = store.loadXWikiDoc(new XWikiDocument(reference), context);
+        String cacheKey = store.getCacheKey(existingDocument, wikiId);
+
+        assertFalse(existingDocument.isNew());
+        // Make sure the existing document has been put in the cache with the correct cache key
+        verify(this.cache).set(eq(cacheKey), any(XWikiDocument.class));
+        verify(this.existCache).set(cacheKey, Boolean.TRUE);
+        verify(this.cache).get(anyString());
+        verify(this.existCache).get(anyString());
+
+        verifyNoMoreInteractions(this.cache);
+        verifyNoMoreInteractions(this.existCache);
+    }
+
+    @Test
+    public void testSaveDocument_wikiIdFromContext() throws Exception
+    {
+        String wikiId = "xwikiDB";
+        XWikiContext context = this.oldcore.getXWikiContext();
+        context.setWikiId(wikiId);
+        // Save a document
+        DocumentReference reference = new DocumentReference("wiki", "space", "page");
+
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), context);
+
+        store.saveXWikiDoc(new XWikiDocument(reference), context);
+        String cacheKey = store.getCacheKey(new XWikiDocument(reference), wikiId);
+
+        // Make sure the old values has been removed from the cache with the correct cache key
+        verify(this.cache).remove(eq(cacheKey));
+        verify(this.existCache).remove(cacheKey);
+
+        verifyNoMoreInteractions(this.cache);
+        verifyNoMoreInteractions(this.existCache);
+    }
+
+    @Test
+    public void testExists_wikiIdFromContext() throws Exception
+    {
+        String wikiId = "xwikiDB";
+        XWikiContext context = this.oldcore.getXWikiContext();
+        context.setWikiId(wikiId);
+
+        DocumentReference reference = new DocumentReference("wiki", "space", "page");
+        XWikiDocument doc = new XWikiDocument(reference);
+        when(this.oldcore.getMockStore().exists(doc, context)).thenReturn(true);
+
+        XWikiCacheStore store = new XWikiCacheStore(this.oldcore.getMockStore(), context);
+
+        boolean exists = store.exists(doc, context);
+        String cacheKey = store.getCacheKey(new XWikiDocument(reference), wikiId);
+
+        assertTrue(exists);
+        // Make sure the exists value has been put in the cache with the correct cache key
+        verify(this.existCache).set(cacheKey, Boolean.TRUE);
+        verify(this.existCache).get(anyString());
+
+        verifyNoMoreInteractions(this.cache);
+        verifyNoMoreInteractions(this.existCache);
+    }
+
 }
