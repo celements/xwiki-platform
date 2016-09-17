@@ -55,7 +55,7 @@ import com.xpn.xwiki.web.Utils;
  * A proxy store implementation that caches Documents when they are first fetched and subsequently return them from a
  * cache. It delegates all write and search operations to an underlying store without doing any caching on them.
  *
- * @version $Id: f51a68e340786f03be34262fed72244aab596b88 $
+ * @version $Id$
  */
 public class XWikiCacheStore implements XWikiCacheStoreInterface, EventListener
 {

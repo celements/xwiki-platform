@@ -57,7 +57,7 @@ import com.xpn.xwiki.test.MockitoOldcoreRule;
 /**
  * Validate {@link XWikiCacheStore} behavior.
  *
- * @version $Id: f7e278312d0db1f977e6dc8b6e5a0250ce9d2412 $
+ * @version $Id$
  */
 @ComponentList({UidStringEntityReferenceSerializer.class, CurrentStringEntityReferenceResolver.class,
     CurrentStringDocumentReferenceResolver.class, CurrentEntityReferenceProvider.class, DefaultModelConfiguration.class,
