@@ -25,6 +25,8 @@ import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Type;
 import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -198,7 +200,8 @@ public class InternalTemplateManager
                     } else if (source instanceof InputStreamInputSource) {
                         // It's impossible to know the real attachment encoding, but let's assume that they respect the
                         // standard and use UTF-8 (which is required for the files located on the filesystem)
-                        strinContent = IOUtils.toString(((InputStreamInputSource) source).getInputStream());
+                        strinContent = IOUtils.toString(((InputStreamInputSource) source).getInputStream(),
+                            StandardCharsets.UTF_8);
                     } else {
                         return null;
                     }
@@ -211,6 +214,12 @@ public class InternalTemplateManager
         }
 
         protected abstract T getContentInternal(String content) throws Exception;
+
+        @Override
+        public String toString()
+        {
+            return this.resource.getId();
+        }
     }
 
     private class EnvironmentTemplate extends AbtractTemplate<FilesystemTemplateContent, AbstractEnvironmentResource>
@@ -495,7 +504,27 @@ public class InternalTemplateManager
         return xdom;
     }
 
-    private XDOM getXDOM(Template template) throws Exception
+    /**
+     * @param template the template to parse
+     * @return the result of the template parsing
+     * @since 8.3RC1
+     */
+    public XDOM getXDOMNoException(Template template)
+    {
+        XDOM xdom;
+
+        try {
+            xdom = getXDOM(template);
+        } catch (Throwable e) {
+            this.logger.error("Error while getting template [{}] XDOM", template.getId(), e);
+
+            xdom = generateError(e);
+        }
+
+        return xdom;
+    }
+
+    public XDOM getXDOM(Template template) throws Exception
     {
         XDOM xdom;
 
@@ -546,6 +575,20 @@ public class InternalTemplateManager
             render(templateName, writer);
         } catch (Exception e) {
             this.logger.error("Error while rendering template [{}]", templateName, e);
+
+            renderError(e, writer);
+        }
+    }
+
+    /**
+     * @since 8.3RC1
+     */
+    public void renderNoException(Template template, Writer writer)
+    {
+        try {
+            render(template, writer);
+        } catch (Exception e) {
+            this.logger.error("Error while rendering template [{}]", template, e);
 
             renderError(e, writer);
         }
@@ -652,6 +695,24 @@ public class InternalTemplateManager
         return xdom;
     }
 
+    /**
+     * @since 8.3RC1
+     */
+    public XDOM executeNoException(Template template)
+    {
+        XDOM xdom;
+
+        try {
+            xdom = execute(template);
+        } catch (Throwable e) {
+            this.logger.error("Error while executing template [{}]", template.getId(), e);
+
+            xdom = generateError(e);
+        }
+
+        return xdom;
+    }
+
     private XDOM execute(Template template, DefaultTemplateContent content) throws Exception
     {
         XDOM xdom = getXDOM(template, content);
@@ -665,6 +726,21 @@ public class InternalTemplateManager
     {
         final Template template = getTemplate(templateName);
 
+        if (template != null) {
+            final DefaultTemplateContent content = (DefaultTemplateContent) template.getContent();
+
+            if (content.authorProvided) {
+                return this.suExecutor.call(() -> execute(template, content), content.getAuthorReference());
+            } else {
+                return execute(template, content);
+            }
+        }
+
+        return null;
+    }
+
+    public XDOM execute(Template template) throws Exception
+    {
         if (template != null) {
             final DefaultTemplateContent content = (DefaultTemplateContent) template.getContent();
 
@@ -732,6 +808,20 @@ public class InternalTemplateManager
             ? new EnvironmentTemplate(new TemplateEnvironmentResource(path, templateName, this.environment)) : null;
     }
 
+    private Template getClassloaderTemplate(String suffixPath, String templateName)
+    {
+        return getClassloaderTemplate(Thread.currentThread().getContextClassLoader(), suffixPath, templateName);
+    }
+
+    private Template getClassloaderTemplate(ClassLoader classloader, String suffixPath, String templateName)
+    {
+        String templatePath = suffixPath + templateName;
+
+        URL url = classloader.getResource(templatePath);
+
+        return url != null ? new DefaultTemplate(new ClassloaderResource(url, templateName)) : null;
+    }
+
     private Template createTemplate(Resource<?> resource)
     {
         Template template;
@@ -777,17 +867,20 @@ public class InternalTemplateManager
 
         // Try from base skin if no skin is set
         if (skin == null) {
-            if (template == null) {
-                Skin baseSkin = this.skins.getCurrentParentSkin(false);
-                if (baseSkin != null) {
-                    template = getTemplate(templateName, baseSkin);
-                }
+            Skin baseSkin = this.skins.getCurrentParentSkin(false);
+            if (baseSkin != null) {
+                template = getTemplate(templateName, baseSkin);
             }
         }
 
-        // Try from /template/ resources
+        // Try from /templates/ environment resources
         if (template == null) {
             template = getFileSystemTemplate("/templates/", templateName);
+        }
+
+        // Try from current Thread classloader
+        if (template == null) {
+            template = getClassloaderTemplate("templates/", templateName);
         }
 
         return template;

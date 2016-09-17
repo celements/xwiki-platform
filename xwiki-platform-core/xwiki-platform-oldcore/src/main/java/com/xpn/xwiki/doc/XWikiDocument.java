@@ -795,29 +795,24 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
     }
 
     /**
-     * Temporary helper to produce a local/uid serialization of this document reference, including the language. Only
-     * translated document will have language appended. FIXME: when reference contains locale, this is no more needed.
+     * Helper to produce and cache a local uid serialization of this document reference, including the language. Only
+     * translated document will have language appended.
      *
      * @return a unique name (in a wiki) (5:space4:name2:lg)
      */
     private String getLocalKey()
     {
         if (this.localKeyCache == null) {
-            final String localUid = LocalUidStringEntityReferenceSerializer.INSTANCE.serialize(getDocumentReference());
-
-            if (StringUtils.isEmpty(getLanguage())) {
-                this.localKeyCache = localUid;
-            } else {
-                this.localKeyCache = appendLocale(new StringBuilder(64).append(localUid)).toString();
-            }
+            this.localKeyCache =
+                LocalUidStringEntityReferenceSerializer.INSTANCE.serialize(getDocumentReferenceWithLocale());
         }
 
         return this.localKeyCache;
     }
 
     /**
-     * Temporary helper to produce a uid serialization of this document reference, including the locale. Only translated
-     * document will have locale appended. FIXME: when reference contains locale, this is no more needed.
+     * Helper to produce and cache a uid serialization of this document reference, including the language. Only
+     * translated document will have language appended.
      *
      * @return a unique name (8:wikiname5:space4:name2:lg or 8:wikiname5:space4:name)
      * @since 4.0M1
@@ -825,35 +820,10 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
     public String getKey()
     {
         if (this.keyCache == null) {
-            final String uid = getUidStringEntityReferenceSerializer().serialize(getDocumentReference());
-
-            if (StringUtils.isEmpty(getLanguage())) {
-                this.keyCache = uid;
-            } else {
-                this.keyCache = appendLocale(new StringBuilder(64).append(uid)).toString();
-            }
+            this.keyCache = getUidStringEntityReferenceSerializer().serialize(getDocumentReferenceWithLocale());
         }
 
         return this.keyCache;
-    }
-
-    /**
-     * Temporary helper that append the language of this document to the provide string buffer. FIXME: when reference
-     * contains locale, this is no more needed.
-     *
-     * @param sb a StringBuilder where to append the locale key
-     * @return the StringBuilder appended with the locale of this document formatted like 2:lg
-     * @see #getLocalKey()
-     */
-    private StringBuilder appendLocale(StringBuilder sb)
-    {
-        String localeString = getLanguage();
-
-        if (StringUtils.isEmpty(localeString)) {
-            return sb;
-        }
-
-        return sb.append(localeString.length()).append(':').append(localeString);
     }
 
     @Override
@@ -879,7 +849,9 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
         // that all things saved in a given wiki's database are always stored relative to that wiki so that
         // changing that wiki's name is simpler.
 
-        return (this.id = Util.getHash(getLocalKey()));
+        this.id = Util.getHash(getLocalKey());
+
+        return this.id;
     }
 
     /**
@@ -1060,7 +1032,7 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
      * Note that this method cannot be removed for now since it's used by Hibernate for loading a XWikiDocument.
      *
      * @param parent the reference of the parent relative to the document
-     * @deprecated since 2.2M1 used {@link #setParentReference(DocumentReference)} instead
+     * @deprecated since 2.2M1, use {@link #setParentReference(EntityReference)} instead
      */
     @Deprecated
     public void setParent(String parent)
@@ -1168,8 +1140,8 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
             getProgress().startStep(getDocumentReference(), "document.progress.render.cache",
                 "Try to get content from the cache");
 
-            String renderedContent =
-                getRenderingCache().getRenderedContent(getDocumentReference(), translatedContent, xcontext);
+            String renderedContent = getRenderingCache().getRenderedContent(tdoc.getDocumentReferenceWithLocale(),
+                translatedContent, xcontext);
 
             if (renderedContent == null) {
                 getProgress().startStep(getDocumentReference(), "document.progress.render.execute", "Execute content");
@@ -1212,7 +1184,10 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
         // rights
         Object currrentSdoc = context.get("sdoc");
         try {
-            context.put("sdoc", this);
+            // If we execute a translation use translated document as secure document
+            XWikiDocument tdoc = getTranslatedDocument(context);
+
+            context.put("sdoc", tdoc);
 
             return display(targetSyntax, false, isolateVelocityMacros, false, true);
         } finally {
@@ -1631,7 +1606,7 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
 
         // Log this since it's probably a mistake so that we find who is doing bad things
         if (this.authorReference != null && this.authorReference.getName().equals(XWikiRightService.GUEST_USER)) {
-            LOGGER.warn("A reference to XWikiGuest user as been set instead of null. This is probably a mistake.",
+            LOGGER.warn("A reference to XWikiGuest user has been set instead of null. This is probably a mistake.",
                 new Exception("See stack trace"));
         }
     }
@@ -1681,7 +1656,7 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
         // Log this since it's probably a mistake so that we find who is doing bad things
         if (this.contentAuthorReference != null
             && this.contentAuthorReference.getName().equals(XWikiRightService.GUEST_USER)) {
-            LOGGER.warn("A reference to XWikiGuest user as been set instead of null. This is probably a mistake.",
+            LOGGER.warn("A reference to XWikiGuest user has been set instead of null. This is probably a mistake.",
                 new Exception("See stack trace"));
         }
     }
@@ -1729,7 +1704,7 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
 
         // Log this since it's probably a mistake so that we find who is doing bad things
         if (this.creatorReference != null && this.creatorReference.getName().equals(XWikiRightService.GUEST_USER)) {
-            LOGGER.warn("A reference to XWikiGuest user as been set instead of null. This is probably a mistake.",
+            LOGGER.warn("A reference to XWikiGuest user has been set instead of null. This is probably a mistake.",
                 new Exception("See stack trace"));
         }
     }
@@ -3743,13 +3718,13 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
     }
 
     /**
-     * Create and/or update objects in a document given a list of HTTP parameters of the form
-     * '<spacename>.<classname>_<number>_<propertyname>'. If the object already exists, the field is replace by the
-     * given value. If the object doesn't exist in the document, it is created then the property <propertyname> is
-     * initialized with the given value. An object is only created if the given '<number>' is 'one-more' than the
-     * existing number of objects. For example, if the document already has 2 objects of type 'Space.Class', then it
-     * will create a new object only with 'Space.Class_2_prop=something'. Every other parameter like
-     * 'Space.Class_42_prop=foobar' for example, will be ignore.
+     * Create and/or update objects in a document given a list of HTTP parameters of the form {@code
+     * <spacename>.<classname>_<number>_<propertyname>}. If the object already exists, the field is replace by the given
+     * value. If the object doesn't exist in the document, it is created then the property {@code <propertyname>} is
+     * initialized with the given value. An object is only created if the given {@code <number>} is 'one-more' than the
+     * existing number of objects. For example, if the document already has 2 objects of type {@code Space.Class}, then
+     * it will create a new object only with {@code Space.Class_2_prop=something}. Every other parameter like {@code
+     * Space.Class_42_prop=foobar} for example, will be ignore.
      *
      * @param eform is form information that contains all the query parameters
      * @param context
@@ -5086,12 +5061,11 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
 
     /**
      * Get a list of unique links from this document to others documents.
-     * <p>
      * <ul>
      * <li>xwiki/1.0 content: get the unique links associated to document from database. This is stored when the
      * document is saved. You can use "backlinks" in XWikiPreferences or "xwiki.backlinks" in xwiki.cfg file to enable
      * links storage in the database.</li>
-     * <li>Other content: call {@link #getUniqueLinkedPages(XWikiContext)} and generate the List</li>.
+     * <li>Other content: call {@link #getUniqueLinkedPages(XWikiContext)} and generate the List.</li>
      * </ul>
      *
      * @param context the XWiki context
@@ -7635,7 +7609,7 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
      * future objects will have new (different) numbers. However, on some storage engines the counter will be reset if
      * the document is removed from the cache and reloaded from the persistent storage.
      *
-     * @param classReference The XClass reference of the XObjects to be removed.
+     * @param reference The XClass reference of the XObjects to be removed.
      * @return {@code true} if the objects were successfully removed, {@code false} if no object from the target class
      *         was in the current document.
      * @since 5.0M1

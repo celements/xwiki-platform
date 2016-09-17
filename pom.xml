@@ -35,7 +35,7 @@
          By using an empty value we force Maven to resolve the parent from the Maven repositories,
          see http://maven.apache.org/ref/3.2.3/maven-model/maven.html#class_parent
     -->
-    <relativePath />
+    <relativePath/>
   </parent>
   <groupId>org.xwiki.platform</groupId>
   <artifactId>xwiki-platform</artifactId>
@@ -103,6 +103,20 @@
             </dependency>
           </dependencies>
         </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <configuration>
+            <tags>
+              <!-- Tag to document a xwiki.cfg configuration file property behavior -->
+              <tag>
+                <name>xwiki.xwikicfg</name>
+                <placement>a</placement>
+                <head>xwiki.cfg configuration:</head>
+              </tag>
+            </tags>
+          </configuration>
+        </plugin>
       </plugins>
     </pluginManagement>
     <plugins>
@@ -165,17 +179,6 @@
         <!-- Don't check that unit tests don't output anything to the console since for example Clover will output
              messages such as "Updating existing database at '...'." during tests! -->
         <xwiki.surefire.captureconsole.skip>true</xwiki.surefire.captureconsole.skip>
-      </properties>
-    </profile>
-    <profile>
-      <!-- TODO: Java 8 is now stricter for checking validity of javadoc. We need to fix our errors and then we can
-           disable this. -->
-      <id>disable-java8-doclint</id>
-      <activation>
-        <jdk>[1.8,)</jdk>
-      </activation>
-      <properties>
-        <additionalparam>-Xdoclint:none</additionalparam>
       </properties>
     </profile>
   </profiles>
