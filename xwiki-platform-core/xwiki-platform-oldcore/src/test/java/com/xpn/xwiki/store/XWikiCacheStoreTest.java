@@ -37,6 +37,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.xwiki.cache.Cache;
 import org.xwiki.cache.CacheManager;
+import org.xwiki.model.internal.DefaultModelConfiguration;
+import org.xwiki.model.internal.reference.DefaultSymbolScheme;
 import org.xwiki.model.internal.reference.UidStringEntityReferenceSerializer;
 import org.xwiki.model.reference.DocumentReference;
 import org.xwiki.observation.ObservationManager;
@@ -45,14 +47,24 @@ import org.xwiki.test.annotation.ComponentList;
 
 import com.xpn.xwiki.XWikiContext;
 import com.xpn.xwiki.doc.XWikiDocument;
+import com.xpn.xwiki.internal.model.reference.CurrentEntityReferenceProvider;
+import com.xpn.xwiki.internal.model.reference.CurrentStringDocumentReferenceResolver;
+import com.xpn.xwiki.internal.model.reference.CurrentStringEntityReferenceResolver;
 import com.xpn.xwiki.test.MockitoOldcoreRule;
 
 /**
  * Validate {@link XWikiCacheStore} behavior.
  *
- * @version $Id$
+ * @version $Id: 69a6ba5eb309a545f911ab9c29af9f57be80b28b $
  */
-@ComponentList(UidStringEntityReferenceSerializer.class)
+@ComponentList({
+    UidStringEntityReferenceSerializer.class,
+    DefaultModelConfiguration.class,
+    CurrentStringDocumentReferenceResolver.class,
+    CurrentStringEntityReferenceResolver.class,
+    CurrentEntityReferenceProvider.class,
+    DefaultSymbolScheme.class
+})
 public class XWikiCacheStoreTest
 {
     @Rule
@@ -127,7 +139,7 @@ public class XWikiCacheStoreTest
 
         DocumentReference docRef = new DocumentReference("testWiki", "space", "page");
         XWikiDocument theDoc = new XWikiDocument(docRef);
-        assertEquals("7:xwikiDB5:space4:page", store.getKey(theDoc));
+        assertEquals("8:testWiki5:space4:page", store.getKey(theDoc));
     }
 
     @Test
