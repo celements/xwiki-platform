@@ -1229,6 +1229,22 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
 
     /**
      * @param text the text to render
+     * @param syntaxId the id of the Syntax used by the passed text (e.g. {@code xwiki/2.1})
+     * @param restrictedTransformationContext see {@link DocumentDisplayerParameters#isTransformationContextRestricted}.
+     * @param sDocument the {@link XWikiDocument} to use as secure document, if null keep the current one
+     * @param context the XWiki Context object
+     * @return the given text rendered in the context of this document using the passed Syntax
+     * @since 8.3
+     */
+    public String getRenderedContent(String text, String syntaxId, boolean restrictedTransformationContext,
+        XWikiDocument sDocument, XWikiContext context)
+    {
+        return getRenderedContent(text, syntaxId, getOutputSyntax().toIdString(), restrictedTransformationContext,
+            sDocument, context);
+    }
+
+    /**
+     * @param text the text to render
      * @param sourceSyntaxId the id of the Syntax used by the passed text (e.g. {@code xwiki/2.1})
      * @param targetSyntaxId the id of the syntax in which to render the document content
      * @param context the XWiki context
@@ -1252,25 +1268,39 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
     public String getRenderedContent(String text, String sourceSyntaxId, String targetSyntaxId,
         boolean restrictedTransformationContext, XWikiContext context)
     {
+        return getRenderedContent(text, sourceSyntaxId, targetSyntaxId, restrictedTransformationContext, null, context);
+    }
+
+    /**
+     * @param text the text to render
+     * @param sourceSyntaxId the id of the Syntax used by the passed text (e.g. {@code xwiki/2.1})
+     * @param targetSyntaxId the id of the syntax in which to render the document content
+     * @param restrictedTransformationContext see {@link DocumentDisplayerParameters#isTransformationContextRestricted}.
+     * @param sDocument the {@link XWikiDocument} to use as secure document, if null keep the current one
+     * @param context the XWiki context
+     * @return the given text rendered in the context of this document using the passed Syntax
+     * @since 8.3
+     */
+    public String getRenderedContent(String text, String sourceSyntaxId, String targetSyntaxId,
+        boolean restrictedTransformationContext, XWikiDocument sDocument, XWikiContext context)
+    {
         Map<String, Object> backup = null;
 
+        XWikiDocument currentSDocument = (XWikiDocument) context.get(CKEY_SDOC);
         try {
             // We have to render the given text in the context of this document. Check if this document is already
             // on the context (same Java object reference). We don't check if the document references are equal
             // because this document can have temporary changes that are not present on the context document even if
             // it has the same document reference.
             if (context.getDoc() != this) {
-                // Remember what is the current caller document because #setAsContextDoc reset it
-                XWikiDocument callerDocument = getCallerDocument(context);
-
                 backup = new HashMap<>();
                 backupContext(backup, context);
                 setAsContextDoc(context);
+            }
 
-                // Make sure to execute the document with the right of the calling author
-                if (callerDocument != null) {
-                    context.put("sdoc", callerDocument);
-                }
+            // Make sure to execute the document with the right of the provided sdocument's author
+            if (sDocument != null) {
+                context.put(CKEY_SDOC, sDocument);
             }
 
             // Reuse this document's reference so that the Velocity macro name-space is computed based on it.
@@ -1290,19 +1320,10 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
             if (backup != null) {
                 restoreContext(backup, context);
             }
+            context.put(CKEY_SDOC, currentSDocument);
         }
 
         return "";
-    }
-
-    private XWikiDocument getCallerDocument(XWikiContext xcontext)
-    {
-        XWikiDocument sdoc = (XWikiDocument) xcontext.get("sdoc");
-        if (sdoc == null) {
-            sdoc = xcontext.getDoc();
-        }
-
-        return sdoc;
     }
 
     public String getEscapedContent(XWikiContext context) throws XWikiException
@@ -2363,7 +2384,10 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
     }
 
     /**
-     * @since 7.3M1, 7.2.1, 7.1.3, 6.4.6
+     * @since 7.3M1
+     * @since 7.2.1
+     * @since 7.1.3
+     * @since 6.4.6
      */
     public int getXObjectSize(EntityReference classReference)
     {
@@ -2556,7 +2580,10 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
      * @param xcontext the XWiki context
      * @return a {@link BaseObject} stored at passed location
      * @throws XWikiException when failing to create new xobject instance
-     * @since 7.3M1, 7.2.1, 7.1.3, 6.4.6
+     * @since 7.3M1
+     * @since 7.2.1
+     * @since 7.1.3
+     * @since 6.4.6
      */
     public BaseObject getXObject(EntityReference classReference, int number, boolean create, XWikiContext xcontext)
         throws XWikiException
@@ -6462,7 +6489,7 @@ public class XWikiDocument implements DocumentModelBridge, Cloneable
                     }
                 } catch (XWikiException e) {
                     LOGGER.error("Failed to compare attachments [{}] and [{}]", origAttach.getReference(),
-                        newAttach.getReference());
+                        newAttach.getReference(), e);
                 }
             }
         }

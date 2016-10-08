@@ -17,36 +17,30 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.xwiki.url.internal.standard.temporary;
+package org.xwiki.component.internal;
 
-import java.net.URL;
-import java.util.Map;
+import javax.inject.Inject;
 
-import javax.inject.Named;
-import javax.inject.Singleton;
-
-import org.xwiki.component.annotation.Component;
-import org.xwiki.resource.CreateResourceReferenceException;
-import org.xwiki.resource.ResourceReferenceResolver;
-import org.xwiki.resource.ResourceType;
-import org.xwiki.resource.UnsupportedResourceReferenceException;
-import org.xwiki.resource.temporary.TemporaryResourceReference;
+import org.xwiki.component.internal.multi.ComponentManagerFactory;
+import org.xwiki.component.manager.ComponentManager;
 
 /**
- * Resolve URLs pointing to a temporary resource.
- *
+ * Base class helper to implement {@link ComponentManagerFactory}.
+ * 
  * @version $Id$
- * @since 6.1M2
+ * @since 8.4RC1
  */
-@Component
-@Named("standard/tmp")
-@Singleton
-public class URLTemporaryResourceReferenceResolver implements ResourceReferenceResolver<URL>
+public abstract class AbstractComponentManagerFactory implements ComponentManagerFactory
 {
+    /**
+     * The default {@link ComponentManagerFactory} used to actually create the {@link ComponentManager} instance.
+     */
+    @Inject
+    protected ComponentManagerFactory defaultFactory;
+
     @Override
-    public TemporaryResourceReference resolve(URL representation, ResourceType type, Map<String, Object> parameters)
-        throws CreateResourceReferenceException, UnsupportedResourceReferenceException
+    public ComponentManager createComponentManager(ComponentManager parentComponentManager)
     {
-        return null;
+        return this.defaultFactory.createComponentManager(parentComponentManager);
     }
 }

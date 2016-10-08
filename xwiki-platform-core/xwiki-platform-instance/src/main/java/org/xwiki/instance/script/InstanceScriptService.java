@@ -17,43 +17,38 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.xwiki.resource.internal.temporary;
+package org.xwiki.instance.script;
 
-import java.util.Arrays;
-import java.util.List;
-
+import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
 
 import org.xwiki.component.annotation.Component;
-import org.xwiki.resource.AbstractResourceReferenceHandler;
-import org.xwiki.resource.ResourceReference;
-import org.xwiki.resource.ResourceReferenceHandlerChain;
-import org.xwiki.resource.ResourceReferenceHandlerException;
-import org.xwiki.resource.ResourceType;
-import org.xwiki.resource.temporary.TemporaryResourceReference;
+import org.xwiki.instance.InstanceId;
+import org.xwiki.instance.InstanceIdManager;
+import org.xwiki.script.service.ScriptService;
+import org.xwiki.stability.Unstable;
 
 /**
- * Resolves and return the temporary resource ({@link org.xwiki.resource.temporary.TemporaryResourceReference}) in the Servlet Output
- * Stream.
- *
+ * Provides instance-specific scripting APIs.
+ * 
  * @version $Id$
- * @since 6.1M1
+ * @since 8.3RC1
  */
 @Component
-@Named("tmp")
+@Named("instance")
 @Singleton
-public class TemporaryResourceReferenceHandler extends AbstractResourceReferenceHandler<ResourceType>
+@Unstable
+public class InstanceScriptService implements ScriptService
 {
-    @Override
-    public List<ResourceType> getSupportedResourceReferences()
-    {
-        return Arrays.asList(TemporaryResourceReference.TYPE);
-    }
+    @Inject
+    private InstanceIdManager instanceIdManager;
 
-    @Override
-    public void handle(ResourceReference reference, ResourceReferenceHandlerChain chain)
-        throws ResourceReferenceHandlerException
+    /**
+     * @return the XWiki instance id or null if not set, see {@link InstanceIdManager#getInstanceId()}
+     */
+    public InstanceId getInstanceId()
     {
+        return instanceIdManager.getInstanceId();
     }
 }

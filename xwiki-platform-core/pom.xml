@@ -25,7 +25,7 @@
   <parent>
     <groupId>org.xwiki.platform</groupId>
     <artifactId>xwiki-platform</artifactId>
-    <version>8.3-SNAPSHOT</version>
+    <version>8.4-SNAPSHOT</version>
   </parent>
   <artifactId>xwiki-platform-core</artifactId>
   <name>XWiki Platform - Core - Parent POM</name>
@@ -57,7 +57,7 @@
       <dependency>
         <groupId>org.jgroups</groupId>
         <artifactId>jgroups</artifactId>
-        <version>3.6.10.Final</version>
+        <version>3.6.11.Final</version>
       </dependency>
       <!-- Apache Tika used by several modules (Lucene, Office, etc) -->
       <dependency>
@@ -522,6 +522,11 @@
                     "old": "field org.xwiki.mail.script.AbstractMailScriptService.sessionFactory",
                     "new": "field org.xwiki.mail.script.AbstractMailScriptService.sessionFactory",
                     "justification": "Was publicly exposing internal class"
+                  },
+                  {
+                    "code": "java.class.removed",
+                    "old": "class org.xwiki.resource.temporary.TemporaryResourceReference",
+                    "justification": "Not an actual breakage. The class has been moved from xwiki-platform-resource-default to xwiki-platform-resource-temporary module, under the same package."
                   }
                 ]
               }
